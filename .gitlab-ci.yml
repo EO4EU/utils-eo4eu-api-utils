@@ -1,0 +1,92 @@
+.dagger:
+  image: ghcr.io/purpleclay/dagger-cli:0.18.10
+  variables:
+    GITLAB: git.apps.eo4eu.eu
+    REPO_NAMESPACE: eo4eu/eo4eu-provision-handler/utils
+    REPO: eo4eu-api-utils
+    SERVICE: eo4eu-provision-handler/utils
+    CONTEXT: build
+    DOCNAME: eo4eu_data_utils-docs
+    YAML_RULES: rules/python_rules.yaml
+  before_script:
+    - "apk update && apk --no-cache add wget"
+    - "export VAULT_TOKEN=$(wget -qO- --method=PUT \
+      --body-data='{\"role_id\":\"'\"$VAULT_ROLE_ID\"'\",\"secret_id\":\"'\"$VAULT_SECRET_ID\"'\"}' \
+      \"$VAULT_SERVER_URL/v1/auth/approle/login\" | jq -r '.auth.client_token')"
+    - "export BEARER=\"X-Vault-Token: $VAULT_TOKEN\""
+    - "export CI_REPO_USERNAME=$(wget -qO- --header=\"$BEARER\" \
+      \"$VAULT_SERVER_URL/v1/kv/data/eo4eu-cicd/gitlab_credentials/$SERVICE/$REPO\" | \
+      jq -r '.data.data.username')"
+    - "export CI_REPO_PASSWORD=$(wget -qO- --header=\"$BEARER\" \
+      \"$VAULT_SERVER_URL/v1/kv/data/eo4eu-cicd/gitlab_credentials/$SERVICE/$REPO\" | \
+      jq -r '.data.data.password')"
+    - "export PYPI_API_TOKEN=$(wget -qO- --header=\"$BEARER\" \
+      \"$VAULT_SERVER_URL/v1/kv/data/eo4eu-cicd/mixed_credentials/$SERVICE\" | \
+      jq -r '.data.data.apitoken')"
+    - "export API_V4_URL=https://$GITLAB/api/v4"
+    - "export PROJECT_PATH=${REPO_NAMESPACE}/${REPO}"
+    - "export PROJECT_ID=$(wget -qO- --header=\"PRIVATE-TOKEN: $CI_REPO_PASSWORD\" \
+      \"$API_V4_URL/projects?search=${REPO}\" | jq -r '.[] | \
+      select(.path_with_namespace==\"'$PROJECT_PATH'\") | .id')"
+    - |
+      echo Cloning branch $CI_COMMIT_BRANCH
+      git clone https://$CI_REPO_USERNAME:$CI_REPO_PASSWORD@$GITLAB/$REPO_NAMESPACE/$REPO.git \
+        --branch $CI_COMMIT_BRANCH \
+        --depth 1
+build_lib:
+  extends: [.dagger]
+  tags: [dagger]
+  stage: build
+  script:
+    - |
+      cd $REPO
+      dagger call build \
+        --password env:PYPI_API_TOKEN \
+        --regurl "https://pypi.org/pypi/" \
+        --uploadurl "https://upload.pypi.org/legacy/" \
+        --project $REPO \
+        --wkd $CONTEXT
+# build_docs:
+#   extends: [.dagger]
+#   tags: [dagger]
+#   stage: build
+#   script:
+#     - |
+#       cd $REPO
+#       dagger call docs \
+#         --password env:CI_REPO_PASSWORD \
+#         --regurl https://$GITLAB/api/v4/projects/$PROJECT_ID/packages \
+#         --docdir docs \
+#         --package $DOCNAME \
+#         --wkd $CONTEXT
+scan_code:
+  extends: [.dagger]
+  tags: [dagger]
+  stage: test
+  script:
+    - |
+      cd $REPO
+      dagger call analyze-with-sonarqube \
+        --yaml-rules $YAML_RULES \
+        --source-directory $CONTEXT \
+        --sonar-host-url $SONAR_HOST_URL \
+        --sonar-token $SONAR_TOKEN \
+        --sonar-project-key $SONAR_PROJECT_KEY \
+        --output-name sonar-report.sarif \
+        export --path /builds/$REPO_NAMESPACE/$REPO/
+      dagger call analyze-with-gitguardian \
+        --gitguardian-api-key env:GITGUARDIAN_API_KEY \
+        --source-directory $CONTEXT \
+        --output-name gitguardian-report.sarif \
+        export --path /builds/$REPO_NAMESPACE/$REPO/
+      dagger call synthetic-report \
+        --sonar-sarif /builds/$REPO_NAMESPACE/$REPO/sonar-report.sarif \
+        --gg-sarif /builds/$REPO_NAMESPACE/$REPO/gitguardian-report.sarif \
+        --severity-threshold HIGH \
+        export --path /builds/$REPO_NAMESPACE/$REPO
+  artifacts:
+    when: always
+    expire_in: 4 weeks
+    paths:
+      - sonar-report.html
+      - synthetic-report.html

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>= 65.5.1"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "eo4eu_api_utils",
+]
+
+[project]
+name = "eo4eu_api_utils"
+version = "0.1.7"
+authors = [
+    {name = "Kostandinos Myrtollari", email = "kostasmyrto@di.uoa.gr"},
+]
+description = "Access to EO4EU API"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests >= 2.32.3",
+]

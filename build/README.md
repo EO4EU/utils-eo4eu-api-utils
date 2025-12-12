@@ -1,4 +1,4 @@
-![The EO4EU logo](./docs/eo4eu-logo.png)
+![The EO4EU logo](../docs/eo4eu-logo.png)
 
 Funded by the EU.
 
